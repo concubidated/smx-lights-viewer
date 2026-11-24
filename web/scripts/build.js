@@ -4,6 +4,7 @@
 //
 //   node scripts/build.js            current OS / arch
 //   node scripts/build.js win|mac|linux|all
+//   node scripts/build.js macos-x64     one exact <os>-<arch> target
 //
 // serialport's native addon comes from @serialport/bindings-cpp/prebuilds and
 // is bundled as an asset (pkg extracts it at runtime). Building each OS on its
@@ -47,10 +48,12 @@ function build(list) {
 }
 
 const which = process.argv[2];
+const single = /^(win|macos|linux)-(x64|arm64)$/.exec(which || '');
 if (!which) build(hostTargets());
+else if (single) build([[single[1], single[2]]]);
 else if (which === 'all') build([].concat(...Object.values(TARGETS)));
 else if (TARGETS[which]) build(which === hostKey() && which !== 'mac' ? hostTargets() : TARGETS[which]);
 else {
-  console.error(`unknown target ${which} (win | mac | linux | all)`);
+  console.error(`unknown target ${which} (win | mac | linux | all | <os>-<arch>)`);
   process.exit(2);
 }

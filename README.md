@@ -86,6 +86,8 @@ python3 smx_lights_player.py --bus-log cap.txt --loop      # replay a recording
 ```
 
 Close any `pio device monitor` first; only one program can hold the port.
+- With the cable unplugged, the divider holds RX low. The UART sees that as a continuous BREAK,
+  so expect break/frame-error noise in that case.
 
 ## Twitch / OBS overlay (`web/`)
 
@@ -136,7 +138,7 @@ until you switch back.
 **Build the executables yourself**: `cd web && npm run build` (this OS) or
 `npm run build:win | build:mac | build:linux`; the output goes to `web/dist/`. macOS builds
 made on another OS must be signed on a Mac before they run (`codesign --sign - <file>`).
-`.github/workflows/overlay-release.yml` builds and smoke-tests all four targets on their own
-runners. Pushing a `v*` tag attaches the zipped executables to a GitHub Release.
-- With the cable unplugged, the divider holds RX low. The UART sees that as a continuous BREAK,
-  so expect break/frame-error noise in that case.
+`.github/workflows/overlay-release.yml` builds and smoke-tests all four targets on GitHub
+runners for Windows, Linux and Apple Silicon macOS. The Intel macOS build is made on Apple
+Silicon too and tested under Rosetta 2, since GitHub retired its Intel macOS runners. Pushing
+a `v*` tag attaches the zipped executables to a GitHub Release.

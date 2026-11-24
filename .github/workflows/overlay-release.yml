@@ -24,10 +24,14 @@ jobs:
         include:
           - os: windows-latest
             name: win-x64
-          - os: macos-latest      # Apple Silicon runner
+          - os: macos-latest      # Apple Silicon
             name: macos-arm64
-          - os: macos-13          # Intel runner
+          # GitHub retired the Intel macOS runners. serialport ships a
+          # universal (x64+arm64) macOS prebuild, so the Intel build is made
+          # on Apple Silicon too and smoke-tested under Rosetta 2.
+          - os: macos-latest
             name: macos-x64
+            rosetta: true
           - os: ubuntu-latest
             name: linux-x64
     runs-on: ${{ matrix.os }}
@@ -49,17 +53,22 @@ jobs:
         run: npm test
 
       - name: Build executable
-        run: npm run build
+        run: npm run build -- ${{ matrix.name }}
 
       - name: Ad-hoc sign (macOS)
         if: runner.os == 'macOS'
         run: codesign --force --sign - dist/smx-overlay-${{ matrix.name }}
+
+      - name: Install Rosetta 2
+        if: matrix.rosetta
+        run: sudo softwareupdate --install-rosetta --agree-to-license
 
       - name: Smoke test (executable)
         shell: bash
         run: |
           exe=dist/smx-overlay-${{ matrix.name }}
           [ "${{ runner.os }}" = "Windows" ] && exe="$exe.exe"
+          file "$exe" || true
           node test/smoke.js "$exe"
 
       - uses: actions/upload-artifact@v4
