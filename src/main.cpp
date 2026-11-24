@@ -18,6 +18,11 @@
 #ifndef SMX_STRIP_BREAK_NULL
 #define SMX_STRIP_BREAK_NULL 0
 #endif
+// 0: human-readable hex dump (smx_bus.py); 1: compact binary packets for
+// the web/ overlay bridge (about 3x less USB traffic).
+#ifndef SMX_OUTPUT_BINARY
+#define SMX_OUTPUT_BINARY 0
+#endif
 
 static constexpr uart_port_t SMX_UART = UART_NUM_1;
 static constexpr int SMX_BAUD = 250000;
@@ -158,7 +163,31 @@ static void reader_task(void *) {
 // Printer (runs in loop()): hex dump + once-per-second stats.
 // ---------------------------------------------------------------------------
 
+#if SMX_OUTPUT_BINARY
+// Binary packet: A5 5A | type | u16 len | u32 dt_us | data[len] | u8 xor
+// (little-endian; xor covers type..data). Types: 'F' frame, 'f' truncated
+// frame, 'S' stats (see print_stats).
+static void write_packet(char type, uint32_t dt_us, const uint8_t *data,
+                         uint16_t len) {
+  uint8_t hdr[9] = {0xA5, 0x5A, (uint8_t)type,
+                    (uint8_t)(len & 0xFF), (uint8_t)(len >> 8),
+                    (uint8_t)(dt_us & 0xFF), (uint8_t)(dt_us >> 8),
+                    (uint8_t)(dt_us >> 16), (uint8_t)(dt_us >> 24)};
+  uint8_t x = 0;
+  for (int i = 2; i < 9; i++) x ^= hdr[i];
+  for (uint16_t i = 0; i < len; i++) x ^= data[i];
+  Serial.write(hdr, sizeof(hdr));
+  Serial.write(data, len);
+  Serial.write(&x, 1);
+}
+#endif
+
 static void print_frame(const Frame *f, uint32_t prev_t_us) {
+#if SMX_OUTPUT_BINARY
+  write_packet(f->overflow ? 'f' : 'F', prev_t_us ? f->t_us - prev_t_us : 0,
+               f->data, f->len);
+  return;
+#endif
   float dt_ms = prev_t_us ? (f->t_us - prev_t_us) / 1000.0f : 0.0f;
   Serial.printf("#%lu t=+%.1fms len=%u%s\n", (unsigned long)f->seq, dt_ms,
                 f->len, f->overflow ? " (TRUNCATED)" : "");
@@ -180,6 +209,15 @@ static void print_stats() {
   Stats s;
   memcpy(&s, (const void *)&stats, sizeof(s));
   if (win_max_len == 0 && win_min_len == 0xFFFF) win_min_len = 0;
+#if SMX_OUTPUT_BINARY
+  // 'S' payload: u32 fps, u16 min_len, u16 max_len, u32 dropped, trunc,
+  // fifo_ovf, frame_err, parity_err (all per-second deltas) = 28 bytes.
+  uint32_t v[7] = {s.frames - last.frames, 0, s.dropped - last.dropped,
+                   s.overflows - last.overflows, s.fifo_ovf - last.fifo_ovf,
+                   s.frame_err - last.frame_err, s.parity_err - last.parity_err};
+  v[1] = (uint32_t)win_min_len | ((uint32_t)win_max_len << 16);
+  write_packet('S', 0, (const uint8_t *)v, sizeof(v));  // ESP32 is LE
+#else
   Serial.printf(
       "[stats] fps=%lu len=%u..%u dropped=%lu trunc=%lu fifo_ovf=%lu "
       "frame_err=%lu parity_err=%lu\n",
@@ -189,6 +227,7 @@ static void print_stats() {
       (unsigned long)(s.fifo_ovf - last.fifo_ovf),
       (unsigned long)(s.frame_err - last.frame_err),
       (unsigned long)(s.parity_err - last.parity_err));
+#endif
   last = s;
   win_min_len = 0xFFFF;
   win_max_len = 0;
@@ -197,8 +236,10 @@ static void print_stats() {
 void setup() {
   Serial.begin(115200);
   delay(1500);  // give USB CDC a moment to enumerate
+#if !SMX_OUTPUT_BINARY
   Serial.printf("\nSMX UART logger: UART%d RX=GPIO%d %d baud 8N1 invert=%d\n",
                 (int)SMX_UART, SMX_RX_PIN, SMX_BAUD, SMX_RX_INVERT);
+#endif
 
   free_q = xQueueCreate(FRAME_QUEUE_LEN + 1, sizeof(Frame *));
   full_q = xQueueCreate(FRAME_QUEUE_LEN + 1, sizeof(Frame *));

@@ -1,0 +1,91 @@
+name: overlay-release
+
+# Builds the web/ bridge into standalone executables on each OS (so
+# serialport's native addon comes from that platform's prebuild), smoke-tests
+# them, and attaches them to a GitHub Release when a v* tag is pushed.
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+    paths: ['web/**', '.github/workflows/overlay-release.yml']
+  pull_request:
+    paths: ['web/**', '.github/workflows/overlay-release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: win-x64
+          - os: macos-latest      # Apple Silicon runner
+            name: macos-arm64
+          - os: macos-13          # Intel runner
+            name: macos-x64
+          - os: ubuntu-latest
+            name: linux-x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: Smoke test (source)
+        run: npm test
+
+      - name: Build executable
+        run: npm run build
+
+      - name: Ad-hoc sign (macOS)
+        if: runner.os == 'macOS'
+        run: codesign --force --sign - dist/smx-overlay-${{ matrix.name }}
+
+      - name: Smoke test (executable)
+        shell: bash
+        run: |
+          exe=dist/smx-overlay-${{ matrix.name }}
+          [ "${{ runner.os }}" = "Windows" ] && exe="$exe.exe"
+          node test/smoke.js "$exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smx-overlay-${{ matrix.name }}
+          path: web/dist/smx-overlay-*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Zip executables
+        run: |
+          cd artifacts
+          for f in smx-overlay-*; do
+            chmod +x "$f"
+            zip -9 "${f%.exe}.zip" "$f"
+          done
+          ls -la
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          generate_release_notes: true

@@ -1,0 +1,35 @@
+{
+  "name": "smx-overlay",
+  "version": "0.1.0",
+  "description": "StepManiaX stage lights -> WebSocket bridge + OBS browser-source overlay",
+  "license": "MIT",
+  "private": true,
+  "main": "bridge.js",
+  "bin": "bridge.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node bridge.js",
+    "demo": "node bridge.js --log ../captures/raw2.txt --loop",
+    "test": "node test/smoke.js",
+    "build": "node scripts/build.js",
+    "build:win": "node scripts/build.js win",
+    "build:mac": "node scripts/build.js mac",
+    "build:linux": "node scripts/build.js linux"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.6.0"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*",
+      "node_modules/@serialport/bindings-cpp/prebuilds/**/*"
+    ],
+    "outputPath": "dist"
+  }
+}

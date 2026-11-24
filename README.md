@@ -57,6 +57,7 @@ bridge) connector instead, set `ARDUINO_USB_CDC_ON_BOOT=0` and `ARDUINO_USB_MODE
 | `SMX_RX_PIN` | 4 | GPIO for the DATA line |
 | `SMX_RX_INVERT` | 0 | Invert RX (use it if you see only frame errors) |
 | `SMX_STRIP_BREAK_NULL` | 0 | Drop the trailing `0x00` the BREAK leaves in the FIFO |
+| `SMX_OUTPUT_BINARY` | 0 | 1 = compact binary packets (about 3.5x less USB traffic) for the `web/` overlay bridge. The Python tools only read the default text format |
 
 ## Output
 
@@ -85,5 +86,56 @@ python3 smx_lights_player.py --bus-log cap.txt --loop      # replay a recording
 ```
 
 Close any `pio device monitor` first; only one program can hold the port.
+
+## Twitch / OBS overlay (`web/`)
+
+A small Node.js bridge reads the ESP32, decodes the lights, and serves a canvas overlay
+over HTTP + WebSocket. Add it to OBS / Streamlabs / Twitch Studio as a **Browser Source**.
+It works the same on Windows, macOS and Linux.
+
+**Run it**, either way:
+
+- Download `smx-overlay-<os>-<arch>` from the GitHub Releases page and run it (double-click,
+  or from a terminal).
+- From source (Node 18+): `cd web && npm install && npm start`
+
+It picks the ESP32 automatically (Espressif USB VID `303A`, then CH340/CP210x/FTDI, then the
+only USB serial port). To choose one yourself: `--serial COM3`, `--serial /dev/ttyACM0`, or
+`--serial /dev/cu.usbmodem14301`. `--list` shows the ports.
+
+**In OBS**: Sources > + > Browser, URL `http://localhost:8080/?transparent=1`, width/height
+600 x 600 (any square works; the stage scales to fit).
+
+| URL option | Meaning |
+| --- | --- |
+| `transparent=1` | no background (for overlays) |
+| `boards=0` | hide the panel boards, LEDs only |
+| `bloom=0` | turn off the glow |
+| `hud=1` | show port / fps / status text (good for a quick check in a normal browser) |
+| `gap=8` | space between panels (default 8; `gap=0` makes the boards touch) |
+| `ws=host:port` | bridge address, if the page is served from somewhere else |
+
+Other bridge options: `--log cap.txt --loop` replays a recording (`npm run demo` replays
+`captures/raw2.txt`). `--record file.txt` saves the bus in the text log format, which
+`smx_lights_player.py --bus-log` can read. `--port 8081` changes the HTTP port, and
+`--host 0.0.0.0` makes it reachable from a second streaming PC. The bridge reconnects if the
+ESP32 is unplugged, and the overlay reconnects if the bridge restarts.
+
+The bridge reads both firmware formats. For the lowest USB load, build the firmware with
+`-DSMX_OUTPUT_BINARY=1`, but then `pio device monitor` and `smx_bus.py` show binary noise
+until you switch back.
+
+**First launch of the downloaded executables** (they aren't code-signed):
+
+- macOS: right-click > Open once, or `xattr -d com.apple.quarantine smx-overlay-macos-*`.
+- Windows: SmartScreen > More info > Run anyway.
+- Linux: `chmod +x`. Your user needs the `dialout` group (Debian/Ubuntu/Fedora) or `uucp`
+  (Arch/Manjaro) to open the port: `sudo usermod -aG uucp $USER`, then log out and back in.
+
+**Build the executables yourself**: `cd web && npm run build` (this OS) or
+`npm run build:win | build:mac | build:linux`; the output goes to `web/dist/`. macOS builds
+made on another OS must be signed on a Mac before they run (`codesign --sign - <file>`).
+`.github/workflows/overlay-release.yml` builds and smoke-tests all four targets on their own
+runners. Pushing a `v*` tag attaches the zipped executables to a GitHub Release.
 - With the cable unplugged, the divider holds RX low. The UART sees that as a continuous BREAK,
   so expect break/frame-error noise in that case.
