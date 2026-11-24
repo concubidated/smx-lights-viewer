@@ -13,7 +13,9 @@ const PANELS = 9;
 const RIM_LEDS = 16;
 const HALF_BYTES = PANELS * 8 * 3; // 216
 const FRAME_BYTES = PANELS * RIM_LEDS * 3; // 432
-const PACKET_LEN = { 0x32: 1 + HALF_BYTES, 0x33: 1 + HALF_BYTES, 0x77: 131 }; // '2' '3' 'w'
+const CORE_BYTES = PANELS * 9 * 3; // 243
+// '2' '3' 'w' as on the wire; '4' (3x3 core) only in PNG-exported logs.
+const PACKET_LEN = { 0x32: 1 + HALF_BYTES, 0x33: 1 + HALF_BYTES, 0x77: 131, 0x34: 1 + CORE_BYTES };
 
 // ------------------------------------------------------------- text ----
 const HDR = /#(\d+) t=\+([\d.]+)ms len=(\d+)/;
@@ -163,15 +165,32 @@ function* splitPackets(frame) {
   }
 }
 
-// Assembles '2' / '3' halves into full frames: Uint8Array(432) laid out as
-// [panel 0..8][rim LED 0..15][r,g,b], colours scaled back from the SDK's x2/3.
+// Assembles '2' / '3' halves into full frames, colours scaled back from the
+// SDK's x2/3:
+//   Uint8Array(432)        [panel 0..8][rim LED 0..15][r,g,b]
+//   Uint8Array(432 + 243)  ... followed by [panel 0..8][core LED 0..8][r,g,b]
+// The longer form is only used once a '4' (core) packet has been seen. The
+// real bus never sends one; PNG-exported logs do.
 class LightsDecoder {
   constructor() {
-    this.state = new Uint8Array(FRAME_BYTES);
+    this.state = new Uint8Array(FRAME_BYTES + CORE_BYTES);
     this.haveTop = false;
+    this.haveCore = false;
+  }
+
+  _out() {
+    return this.state.slice(0, this.haveCore ? FRAME_BYTES + CORE_BYTES : FRAME_BYTES);
   }
 
   feed(cmd, payload) {
+    if (cmd === '4') {
+      for (let k = 0; k < CORE_BYTES; k++) {
+        const v = (payload[k] * 3) >> 1;
+        this.state[FRAME_BYTES + k] = v > 255 ? 255 : v;
+      }
+      this.haveCore = true;
+      return null;
+    }
     if (cmd !== '2' && cmd !== '3') return null;
     const off = cmd === '2' ? 0 : 8;
     for (let p = 0; p < PANELS; p++) {
@@ -183,16 +202,18 @@ class LightsDecoder {
     if (cmd === '2') { this.haveTop = true; return null; }
     if (!this.haveTop) return null;
     this.haveTop = false;
-    return this.state.slice();
+    return true; // complete; the caller takes a snapshot via _out()
   }
 
-  // Convenience: one bus frame -> array of completed light frames.
+  // One bus frame -> array of completed light frames. Snapshots are taken at
+  // the end of the bus frame so a '4' packet trailing the '3' is included.
   frame(frameBytes) {
-    const out = [];
+    let done = 0;
     for (const [cmd, payload] of splitPackets(frameBytes)) {
-      const full = this.feed(cmd, payload);
-      if (full) out.push(full);
+      if (this.feed(cmd, payload)) done++;
     }
+    const out = [];
+    for (let i = 0; i < done; i++) out.push(this._out());
     return out;
   }
 }
@@ -211,6 +232,6 @@ function formatTextFrame(seq, dtMs, frame) {
 }
 
 module.exports = {
-  PANELS, RIM_LEDS, FRAME_BYTES,
+  PANELS, RIM_LEDS, FRAME_BYTES, CORE_BYTES,
   TextParser, BinaryParser, AutoParser, LightsDecoder, splitPackets, formatTextFrame,
 };

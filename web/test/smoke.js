@@ -64,7 +64,7 @@ async function waitForServer() {
       const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
       ws.on('message', (data, isBinary) => {
         if (isBinary) {
-          if (data.length !== 432) reject(new Error(`frame length ${data.length}`));
+          if (data.length !== 432 && data.length !== 675) reject(new Error(`frame length ${data.length}`));
           frames++;
           if (data.some((v) => v > 0)) lit++;
         } else if (JSON.parse(data.toString()).type === 'status') {

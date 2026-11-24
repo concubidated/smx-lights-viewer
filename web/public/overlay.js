@@ -1,6 +1,7 @@
 'use strict';
 // SMX stage lights overlay. Receives 432-byte frames over WebSocket
-// ([panel 0..8][rim LED 0..15][r,g,b]) and draws the 3x3 stage like
+// ([panel 0..8][rim LED 0..15][r,g,b]), optionally followed by 243 bytes of
+// 3x3 core ([panel][core LED 0..8][r,g,b]), and draws the 3x3 stage like
 // smx_lights_player.py. Only redraws when a new frame (or resize) arrives.
 //
 // URL options:
@@ -29,6 +30,12 @@
   // 4x4 rim block (row-major) -> position in the panel's 7x7 lattice.
   const RIM_R = [0, 0, 0, 0, 2, 2, 2, 2, 4, 4, 4, 4, 6, 6, 6, 6];
   const RIM_C = [0, 2, 4, 6, 0, 2, 4, 6, 0, 2, 4, 6, 0, 2, 4, 6];
+  // 3x3 core block (row-major) -> odd rows / columns of the same lattice.
+  const CORE_R = [1, 1, 1, 3, 3, 3, 5, 5, 5];
+  const CORE_C = [1, 3, 5, 1, 3, 5, 1, 3, 5];
+  const CORE = 9;
+  const RIM_BYTES = PANELS * RIM * 3; // 432
+  const CORE_BYTES = PANELS * CORE * 3; // 243 (only in PNG-exported logs)
   const IDLE_MS = 2000;
 
   const canvas = document.getElementById('stage');
@@ -82,12 +89,10 @@
     dirty = true;
   }
 
-  function ledPos(p, i) {
-    const pr = (p / 3) | 0;
-    const pc = p % 3;
-    const px = L.sx + pc * (L.panel + L.gap);
-    const py = L.sy + pr * (L.panel + L.gap);
-    return [px + L.lead + RIM_C[i] * L.pitch, py + L.lead + RIM_R[i] * L.pitch];
+  function latticePos(p, gr, gc) {
+    const px = L.sx + (p % 3) * (L.panel + L.gap);
+    const py = L.sy + ((p / 3) | 0) * (L.panel + L.gap);
+    return [px + L.lead + gc * L.pitch, py + L.lead + gr * L.pitch];
   }
 
   function roundRect(c, x, y, w, h, rad) {
@@ -117,8 +122,8 @@
         bctx.strokeStyle = '#2c303c';
         bctx.stroke();
       }
-      // The pygame player also draws the 9 core sockets; the bus never
-      // carries core data, so they are always dark sockets here too.
+      // All 25 sockets (rim + core). The live bus never carries core data,
+      // so the core stays dark there; PNG-exported logs light it.
       for (let gr = 0; gr < 7; gr++) {
         for (let gc = 0; gc < 7; gc++) {
           if ((gr + gc) % 2 === 1) continue;
@@ -151,27 +156,36 @@
     }
     const gs = glow.width / L.W;
 
+    const led = (o, x, y) => {
+      const cr = frame[o], cg = frame[o + 1], cb = frame[o + 2];
+      if (Math.max(cr, cg, cb) <= 6) return;
+      // halo, body, hot centre (same recipe as Player.draw)
+      ctx.fillStyle = shade(cr, cg, cb, 0.3);
+      ctx.beginPath(); ctx.arc(x, y, r + 3 * L.s, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = shade(cr, cg, cb, 1.18);
+      ctx.beginPath(); ctx.arc(x, y, Math.max(1, (2 * r) / 3), 0, Math.PI * 2); ctx.fill();
+      if (useGlow) {
+        gctx.fillStyle = shade(cr, cg, cb, 0.5);
+        gctx.beginPath();
+        gctx.arc(x * gs, y * gs, Math.max(1, r * 1.8 * gs), 0, Math.PI * 2);
+        gctx.fill();
+      }
+    };
+
     if (fade > 0) {
       ctx.globalAlpha = fade;
+      const hasCore = frame.length >= RIM_BYTES + CORE_BYTES;
       for (let p = 0; p < PANELS; p++) {
         for (let i = 0; i < RIM; i++) {
-          const o = (p * RIM + i) * 3;
-          const cr = frame[o], cg = frame[o + 1], cb = frame[o + 2];
-          if (Math.max(cr, cg, cb) <= 6) continue;
-          const [x, y] = ledPos(p, i);
-          // halo, body, hot centre (same recipe as Player.draw)
-          ctx.fillStyle = shade(cr, cg, cb, 0.3);
-          ctx.beginPath(); ctx.arc(x, y, r + 3 * L.s, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
-          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-          ctx.fillStyle = shade(cr, cg, cb, 1.18);
-          ctx.beginPath(); ctx.arc(x, y, Math.max(1, (2 * r) / 3), 0, Math.PI * 2); ctx.fill();
-          if (useGlow) {
-            gctx.fillStyle = shade(cr, cg, cb, 0.5);
-            gctx.beginPath();
-            gctx.arc(x * gs, y * gs, Math.max(1, r * 1.8 * gs), 0, Math.PI * 2);
-            gctx.fill();
-          }
+          const [x, y] = latticePos(p, RIM_R[i], RIM_C[i]);
+          led((p * RIM + i) * 3, x, y);
+        }
+        if (!hasCore) continue;
+        for (let i = 0; i < CORE; i++) {
+          const [x, y] = latticePos(p, CORE_R[i], CORE_C[i]);
+          led(RIM_BYTES + (p * CORE + i) * 3, x, y);
         }
       }
       if (useGlow) {
@@ -232,7 +246,7 @@
         return;
       }
       const f = new Uint8Array(ev.data);
-      if (f.length !== PANELS * RIM * 3) return;
+      if (f.length !== RIM_BYTES && f.length !== RIM_BYTES + CORE_BYTES) return;
       frame = f;
       lastFrameAt = performance.now();
       fpsCount++;

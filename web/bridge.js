@@ -10,7 +10,8 @@
 //
 // The overlay is at http://localhost:8080/  (add ?transparent=1 for OBS).
 // WebSocket messages: binary = one light frame, 432 bytes
-// ([panel 0..8][rim LED 0..15][r,g,b]); text = JSON status about once a second.
+// ([panel 0..8][rim LED 0..15][r,g,b]), or 675 when the source carries the 3x3
+// core (PNG-exported logs only); text = JSON status about once a second.
 
 const fs = require('fs');
 const http = require('http');
@@ -111,6 +112,7 @@ async function main() {
 
   const server = http.createServer((req, res) => serveStatic(req, res, status));
   const wss = new WebSocketServer({ server, path: '/ws', perMessageDeflate: false });
+  wss.on('error', () => {}); // listen errors are reported by server.on('error')
   wss.on('connection', (ws) => {
     state.clients = wss.clients.size;
     ws.send(JSON.stringify(status()));

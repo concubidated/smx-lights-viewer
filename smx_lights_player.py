@@ -746,6 +746,40 @@ class Player:
 
 
 # ======================================================= live bus playback ==
+def export_bus_log(panels: np.ndarray, path: str, fps: int = FPS) -> int:
+    """Write decoded frames as an ESP32 text bus log.
+
+    Each frame becomes a '2' (LEDs 0-7) and a '3' (LEDs 8-15) packet half a
+    frame apart, colours pre-scaled by 2/3 like the SDK, so smx_bus.py,
+    --bus-log and the web/ bridge (--log) replay it like a real capture.
+
+    The real bus never carries the 3x3 core, so core colours go in an extra
+    synthetic '4' packet (9 panels x 9 LEDs x RGB = 243 bytes, row-major)
+    appended to the '3' frame.  The web/ bridge shows it; smx_bus.py
+    ignores it.
+    """
+    def scale(a):                                               # 255 -> 170
+        return ((a.astype(np.uint16) * 2 + 1) // 3).astype(np.uint8)
+
+    rim = scale(panels[:, :, RIM_R, RIM_C])                     # (N, 9, 16, 3)
+    core = scale(panels[:, :, CORE_R, CORE_C])                  # (N, 9, 9, 3)
+    has_core = bool(core.any())
+    half_ms = 1000.0 / fps / 2
+    seq = 0
+    with open(path, "w") as fh:
+        for f, c in zip(rim, core):
+            for cmd, leds in ((b"2", f[:, 0:8]), (b"3", f[:, 8:16])):
+                seq += 1
+                data = cmd + leds.tobytes()
+                if cmd == b"3" and has_core:
+                    data += b"4" + c.tobytes()
+                fh.write(f"#{seq} t=+{half_ms:.1f}ms len={len(data)}\n")
+                for off in range(0, len(data), 16):
+                    fh.write(f"  {off:04x}:" + "".join(
+                        f" {b:02x}" for b in data[off:off + 16]) + "\n")
+    return seq
+
+
 def bus_to_panels(frames: np.ndarray) -> np.ndarray:
     """(N, 9, 16, 3) rim colours from smx_bus -> (N, 9, 7, 7, 3) lattice."""
     out = np.zeros((len(frames), PANELS, 7, 7, 3), np.uint8)
@@ -840,6 +874,9 @@ def main(argv=None):
                     help="with --serial: also save the raw log for later playback")
     ap.add_argument("--bus-log", metavar="FILE",
                     help="play back a recorded ESP32 bus log instead of a PNG")
+    ap.add_argument("--export-bus-log", metavar="FILE",
+                    help="decode the PNG, write it as an ESP32 text bus log "
+                         "(for web/bridge.js --log) and exit")
     a = ap.parse_args(argv)
 
     if a.serial:
@@ -884,6 +921,12 @@ def main(argv=None):
           f"{len(frames) / a.fps:.2f} s at {a.fps} fps, "
           f"{PANELS} panels x {LEDS_PER_PANEL} LEDs "
           f"({PANEL_GRID}x{PANEL_GRID} stage)")
+
+    if a.export_bus_log:
+        n = export_bus_log(frames, a.export_bus_log, a.fps)
+        print(f"wrote {a.export_bus_log}: {n} bus frames ({len(frames)} light "
+              f"frames, rim + core)")
+        return
 
     if audio:
         print(f"audio: {os.path.basename(audio)}")

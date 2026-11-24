@@ -116,7 +116,8 @@ only USB serial port). To choose one yourself: `--serial COM3`, `--serial /dev/t
 | `ws=host:port` | bridge address, if the page is served from somewhere else |
 
 Other bridge options: `--log cap.txt --loop` replays a recording (`npm run demo` replays
-`captures/raw2.txt`). `--record file.txt` saves the bus in the text log format, which
+`captures/raw2.txt`). To replay a lights PNG, convert it first:
+`python3 smx_lights_player.py Lights_video_seq_24x30.png --export-bus-log captures/golden_png.txt`. `--record file.txt` saves the bus in the text log format, which
 `smx_lights_player.py --bus-log` can read. `--port 8081` changes the HTTP port, and
 `--host 0.0.0.0` makes it reachable from a second streaming PC. The bridge reconnects if the
 ESP32 is unplugged, and the overlay reconnects if the bridge restarts.

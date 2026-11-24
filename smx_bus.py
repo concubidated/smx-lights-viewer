@@ -38,7 +38,10 @@ import numpy as np
 PANELS = 9
 RIM_LEDS = 16
 HALF_BYTES = PANELS * 8 * 3          # 216
-PACKET_LEN = {ord("2"): 1 + HALF_BYTES, ord("3"): 1 + HALF_BYTES, ord("w"): 131}
+# '4' = 3x3 core (9 panels x 9 LEDs x RGB). Never seen on the real bus; only
+# in logs exported from lights PNGs (smx_lights_player.py --export-bus-log).
+PACKET_LEN = {ord("2"): 1 + HALF_BYTES, ord("3"): 1 + HALF_BYTES, ord("w"): 131,
+              ord("4"): 1 + PANELS * 9 * 3}
 COLOR_SCALE = 1.5                    # undo the SDK's x0.6666 scaling
 
 _HDR = re.compile(r"#(\d+) t=\+([\d.]+)ms len=(\d+)")
