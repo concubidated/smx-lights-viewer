@@ -21,12 +21,20 @@ const child = exe
   ? spawn(path.resolve(exe), args, { cwd: ROOT })
   : spawn(process.execPath, [path.join(ROOT, 'bridge.js'), ...args], { cwd: ROOT });
 
+// Executables run under emulation (Rosetta 2) can take a while on first
+// launch while the binary is translated; allow overriding the wait.
+const START_MS = Number(process.env.SMOKE_START_MS || 30000);
+
 let out = '';
+let exited = null;
 child.stdout.on('data', (d) => { out += d; });
 child.stderr.on('data', (d) => { out += d; });
+child.on('error', (e) => { exited = `spawn error: ${e.message}`; });
+child.on('exit', (code, sig) => { exited = `exited with code ${code} signal ${sig}`; });
 
 function fail(msg) {
-  console.error(`FAIL: ${msg}\n--- bridge output ---\n${out}`);
+  console.error(`FAIL: ${msg}${exited ? ` (bridge ${exited})` : ' (bridge still running)'}` +
+    `\n--- bridge output ---\n${out}`);
   child.kill();
   process.exit(1);
 }
@@ -42,14 +50,16 @@ function get(p) {
 }
 
 async function waitForServer() {
-  for (let i = 0; i < 100; i++) {
-    try { return await get('/status'); } catch { await new Promise((r) => setTimeout(r, 100)); }
+  const t0 = Date.now();
+  while (Date.now() - t0 < START_MS) {
+    if (exited) break;
+    try { return await get('/status'); } catch { await new Promise((r) => setTimeout(r, 200)); }
   }
-  throw new Error('bridge did not start listening');
+  throw new Error(`bridge did not start listening within ${START_MS} ms`);
 }
 
 (async () => {
-  const timer = setTimeout(() => fail('timed out'), 15000);
+  const timer = setTimeout(() => fail('timed out'), START_MS + 10000);
   try {
     await waitForServer();
     const page = await get('/');

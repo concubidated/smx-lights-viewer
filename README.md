@@ -139,6 +139,7 @@ until you switch back.
 `npm run build:win | build:mac | build:linux`; the output goes to `web/dist/`. macOS builds
 made on another OS must be signed on a Mac before they run (`codesign --sign - <file>`).
 `.github/workflows/overlay-release.yml` builds and smoke-tests all four targets on GitHub
-runners for Windows, Linux and Apple Silicon macOS. The Intel macOS build is made on Apple
-Silicon too and tested under Rosetta 2, since GitHub retired its Intel macOS runners. Pushing
+runners for Windows, Linux and Apple Silicon macOS. GitHub retired its Intel macOS runners, so
+the Intel macOS build is made on Apple Silicon and only checked to be an x86_64 binary; it
+isn't run in CI. If it misbehaves on an Intel Mac, run from source with Node instead. Pushing
 a `v*` tag attaches the zipped executables to a GitHub Release.

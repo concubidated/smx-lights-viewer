@@ -28,10 +28,10 @@ jobs:
             name: macos-arm64
           # GitHub retired the Intel macOS runners. serialport ships a
           # universal (x64+arm64) macOS prebuild, so the Intel build is made
-          # on Apple Silicon too and smoke-tested under Rosetta 2.
+          # on Apple Silicon too. It is not smoke-tested (no Intel runner).
           - os: macos-latest
             name: macos-x64
-            rosetta: true
+            skip_exe_test: true
           - os: ubuntu-latest
             name: linux-x64
     runs-on: ${{ matrix.os }}
@@ -59,16 +59,18 @@ jobs:
         if: runner.os == 'macOS'
         run: codesign --force --sign - dist/smx-overlay-${{ matrix.name }}
 
-      - name: Install Rosetta 2
-        if: matrix.rosetta
-        run: sudo softwareupdate --install-rosetta --agree-to-license
+      - name: Check executable architecture
+        if: matrix.skip_exe_test
+        run: |
+          file dist/smx-overlay-${{ matrix.name }}
+          file dist/smx-overlay-${{ matrix.name }} | grep -q x86_64
 
       - name: Smoke test (executable)
+        if: ${{ !matrix.skip_exe_test }}
         shell: bash
         run: |
           exe=dist/smx-overlay-${{ matrix.name }}
           [ "${{ runner.os }}" = "Windows" ] && exe="$exe.exe"
-          file "$exe" || true
           node test/smoke.js "$exe"
 
       - uses: actions/upload-artifact@v4
