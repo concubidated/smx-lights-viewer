@@ -23,7 +23,7 @@
     ws: q.get('ws') || location.host || 'localhost:8080',
     gap: Number(q.get('gap') ?? 8),
   };
-  if (opt.transparent) document.body.classList.add('transparent');
+  if (opt.transparent) document.documentElement.classList.add('transparent');
 
   const PANELS = 9;
   const RIM = 16;
